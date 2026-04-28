@@ -1,0 +1,29 @@
+# Local runtime configuration for the voice chatbot.
+#
+# Copy this file to ``config.yaml`` (gitignored) and fill in the values
+# you want to override. Every section below is optional: missing keys
+# fall back to the defaults defined in src/voiceappointmentchatbot/config.py.
+
+huggingface:
+  # Personal access token from https://huggingface.co/settings/tokens.
+  # Lifts anonymous rate limits and lets you pull gated models.
+  token: ""
+
+device:
+  # Force a specific device. Leave as "auto" to detect CUDA via ctranslate2.
+  # Allowed values: auto, cuda, cpu.
+  override: "auto"
+
+whisper:
+  # Override the model selected per device. See faster-whisper docs for
+  # the full list (tiny, base, small, medium, large-v3, distil-large-v3, ...).
+  gpu_model: "large-v3"
+  cpu_model: "small"
+
+audio:
+  # Sample rate in Hz. Whisper expects 16000.
+  sample_rate: 16000
+
+output:
+  # Directory where appointment JSON files are written.
+  dir: "output"

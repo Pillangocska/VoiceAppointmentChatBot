@@ -216,3 +216,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-specific
+models/piper/*.onnx
+models/piper/*.onnx.json
+output/*.json
+!output/.gitkeep
+!models/.gitkeep
+
+# Local user config (use config.yaml.example as template)
+config.yaml
