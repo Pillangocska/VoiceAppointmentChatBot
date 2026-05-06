@@ -14,6 +14,7 @@ the rest of the pipeline.
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Protocol
+import re
 
 from voiceappointmentchatbot.asr import Transcript
 from voiceappointmentchatbot.booking import BookingState
@@ -30,7 +31,13 @@ from voiceappointmentchatbot.llm import (
 )
 
 
-_MAX_TOOL_ITERATIONS = 6
+_MAX_TOOL_ITERATIONS = 16
+
+_BULLET_LINE_RE = re.compile(r"^[ \t]*(?:[-*•‣◦]|\d+[.)])\s+")
+_HEADING_RE = re.compile(r"^[ \t]*#{1,6}\s+")
+_BOLD_ITALIC_RE = re.compile(r"(\*{1,3}|_{1,3})(.+?)\1")
+_INLINE_CODE_RE = re.compile(r"`+([^`]+)`+")
+_WHITESPACE_RE = re.compile(r"[ \t]+")
 
 
 class _LLMClient(Protocol):
@@ -117,14 +124,37 @@ class DialogueManager:
         self._last_finalised = False
         self.history.append({"role": "user", "content": transcript.text})
 
-        for _ in range(_MAX_TOOL_ITERATIONS):
+        buffered_text: str = ""
+        for iteration in range(_MAX_TOOL_ITERATIONS):
             turn = self.client.respond(history=self.history, booking_state=self.state)
             self.history.append(assistant_message(turn))
+            tool_names = [call.name for call in turn.tool_calls]
+            print(
+                f"[dialogue] iter={iteration + 1}/{_MAX_TOOL_ITERATIONS} "
+                f"stop={turn.stop_reason} tools={tool_names} "
+                f"text_len={len(turn.text)}"
+            )
+
+            if turn.text:
+                buffered_text = turn.text
 
             if not turn.tool_calls:
-                reply = turn.text or self._fallback_message(self._last_user_language)
+                if turn.text:
+                    reply = turn.text
+                elif buffered_text:
+                    print(
+                        "[dialogue] empty text on final turn; "
+                        "using buffered text from tool-use turn"
+                    )
+                    reply = buffered_text
+                else:
+                    print(
+                        "[dialogue] empty text and no tool calls; "
+                        "using fallback message"
+                    )
+                    reply = self._fallback_message(self._last_user_language)
                 return DialogueResult(
-                    reply=reply,
+                    reply=_strip_markdown_for_speech(reply),
                     language=self._last_user_language,
                     booking_complete=self._last_finalised,
                 )
@@ -132,9 +162,13 @@ class DialogueManager:
             for call in turn.tool_calls:
                 self._execute_tool(call)
 
-        fallback = self._fallback_message(self._last_user_language)
+        print(
+            f"[dialogue] tool loop exceeded {_MAX_TOOL_ITERATIONS} "
+            f"iterations; using fallback message"
+        )
+        fallback = buffered_text or self._fallback_message(self._last_user_language)
         return DialogueResult(
-            reply=fallback,
+            reply=_strip_markdown_for_speech(fallback),
             language=self._last_user_language,
             booking_complete=False,
         )
@@ -228,3 +262,36 @@ class DialogueManager:
         if language == "hu":
             return "Bocsánat, valami elakadt. Kezdjük újra a foglalást?"
         return "Sorry, something got stuck on my end. Shall we start the booking over?"
+
+
+def _strip_markdown_for_speech(text: str) -> str:
+    """Flatten markdown formatting into a clean spoken string.
+
+    Removes bullets, numbered-list markers, headings, emphasis markers
+    (``**bold**``, ``*italic*``, ``_underline_``), and inline code
+    backticks. Each list item is terminated with a period so consecutive
+    items do not slur together when synthesised.
+
+    Args:
+        text: Raw assistant reply, potentially containing markdown.
+
+    Returns:
+        A speech-friendly string with no markdown syntax characters.
+    """
+    if not text:
+        return text
+
+    cleaned_lines: List[str] = []
+    for raw_line in text.splitlines():
+        line = _HEADING_RE.sub("", raw_line)
+        is_bullet = bool(_BULLET_LINE_RE.match(line))
+        line = _BULLET_LINE_RE.sub("", line)
+        line = _INLINE_CODE_RE.sub(r"\1", line)
+        line = _BOLD_ITALIC_RE.sub(r"\2", line)
+        line = _WHITESPACE_RE.sub(" ", line).strip()
+        if not line:
+            continue
+        if is_bullet and line[-1] not in ".!?…":
+            line = f"{line}."
+        cleaned_lines.append(line)
+    return " ".join(cleaned_lines)

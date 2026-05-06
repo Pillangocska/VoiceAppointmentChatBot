@@ -94,6 +94,21 @@ class WhisperTranscriber:
             )
         return self._model
 
+    def warm_up(self) -> None:
+        """Eagerly load the model and run one dummy decode.
+
+        Calling this from startup avoids the multi-second pause that
+        otherwise happens on the first user utterance — both because the
+        weights download (or cache hit) is paid up front, and because
+        the first decode triggers CUDA kernel compilation and
+        CTranslate2 graph construction that subsequent calls reuse.
+        """
+        model = self._ensure_loaded()
+        warmup_audio = np.zeros(self.config.warmup_samples, dtype=np.float32)
+        segments, _ = model.transcribe(warmup_audio, beam_size=1)
+        for _ in segments:
+            pass
+
     def transcribe(self, audio: np.ndarray) -> Transcript:
         """Transcribe an utterance and detect its language.
 

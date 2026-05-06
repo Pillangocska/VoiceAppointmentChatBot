@@ -65,12 +65,16 @@ class WhisperConfig:
         cpu_model: Smaller model id used as the CPU fallback.
         gpu_compute_type: CTranslate2 compute type on GPU.
         cpu_compute_type: CTranslate2 compute type on CPU.
+        warmup_samples: Number of zero-valued samples passed through the
+            model during ``warm_up`` to trigger first-decode kernel and
+            graph compilation.
     """
 
     gpu_model: str = "large-v3"
     cpu_model: str = "small"
     gpu_compute_type: str = "float16"
     cpu_compute_type: str = "int8"
+    warmup_samples: int = 16_000
 
     def model_for(self, device: Device) -> str:
         """Return the appropriate model id for the given device."""

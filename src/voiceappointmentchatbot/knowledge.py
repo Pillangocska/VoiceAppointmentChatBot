@@ -160,6 +160,15 @@ class KnowledgeBase:
         assert self._embeddings is not None
         return chunks, self._embeddings
 
+    def warm_up(self) -> None:
+        """Eagerly load the embedder and embed the corpus once.
+
+        Reads the markdown file, builds chunk embeddings, and caches the
+        Sentence-Transformers model so the first ``ask_kb`` tool call
+        does not pay any of those costs mid-conversation.
+        """
+        self._ensure_embeddings()
+
     def query(self, question: str, top_k: Optional[int] = None) -> str:
         """Retrieve the best matching chunks for ``question``.
 

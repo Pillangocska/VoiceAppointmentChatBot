@@ -11,7 +11,6 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Protocol
-
 import pytest
 
 from voiceappointmentchatbot.asr import Transcript
@@ -412,6 +411,54 @@ def test_unknown_language_falls_back_to_english_reply(
     assert result.reply == "Hello there."
 
 
+def test_tool_use_turn_text_is_used_when_followup_is_empty(
+    vet_manager_factory: _ManagerFactory,
+) -> None:
+    """Text emitted alongside a tool call is spoken if the next turn is empty."""
+    turns = [
+        _tool_turn(
+            ToolCall(id="t1", name=TOOL_CONFIRM_PHONE, arguments={"accepted": True}),
+            text="Great, your phone is confirmed. What is your pet's name?",
+        ),
+        _text_turn(""),
+    ]
+    manager, _ = vet_manager_factory(turns=turns)
+    manager.state.set_slot("phone", "+36 1 555 0199")
+
+    result = manager.handle_user_turn(
+        Transcript(text="Yes, that's right.", language="en", language_probability=0.99)
+    )
+
+    assert result.reply == "Great, your phone is confirmed. What is your pet's name?"
+    assert "Sorry" not in result.reply
+
+
+def test_markdown_bullets_and_emphasis_are_stripped_for_speech(
+    vet_manager_factory: _ManagerFactory,
+) -> None:
+    """Markdown bullets and bold/italic markers are removed before TTS."""
+    reply = (
+        "Here are our services:\n"
+        "- **Vaccinations** for dogs\n"
+        "- *Dental* cleaning\n"
+        "1. Annual checkups\n"
+        "Use `Bodri` as the pet name."
+    )
+    manager, _ = vet_manager_factory(turns=[_text_turn(reply)])
+
+    result = manager.handle_user_turn(
+        Transcript(text="What do you offer?", language="en", language_probability=0.99)
+    )
+
+    assert "**" not in result.reply
+    assert "- " not in result.reply
+    assert "`" not in result.reply
+    assert "Vaccinations for dogs." in result.reply
+    assert "Dental cleaning." in result.reply
+    assert "Annual checkups." in result.reply
+    assert "Use Bodri as the pet name." in result.reply
+
+
 def test_tool_loop_iteration_cap_emits_fallback_message(
     vet_manager_factory: _ManagerFactory,
 ) -> None:
@@ -423,7 +470,7 @@ def test_tool_loop_iteration_cap_emits_fallback_message(
             arguments={"name": "customer_name", "value": "Anna"},
         )
     )
-    turns = [bad_turn for _ in range(10)]
+    turns = [bad_turn for _ in range(20)]
     manager, _ = vet_manager_factory(turns=turns)
 
     result = manager.handle_user_turn(

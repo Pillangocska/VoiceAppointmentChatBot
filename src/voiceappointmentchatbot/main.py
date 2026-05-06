@@ -115,6 +115,15 @@ def main() -> None:
         on_appointment_confirmed=on_confirmed,
     )
 
+    print("[warmup] whisper")
+    transcriber.warm_up()
+    print("[warmup] sentiment")
+    sentiment.warm_up()
+    print("[warmup] knowledge base")
+    knowledge_base.warm_up()
+    print("[warmup] piper voices")
+    speaker.warm_up()
+
     print("Booking chatbot ready. Ctrl+C to exit.\n")
     try:
         while True:

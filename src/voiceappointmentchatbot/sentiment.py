@@ -51,6 +51,16 @@ class TextSentimentAnalyzer:
             )
         return self._pipeline
 
+    def warm_up(self) -> None:
+        """Eagerly load the pipeline and run one dummy classification.
+
+        Triggers tokenizer download/cache lookup, model weight loading
+        onto the chosen device, and first-call kernel compilation so the
+        first real user turn is not blocked by any of it.
+        """
+        clf = self._ensure_loaded()
+        clf("warmup")  # type: ignore[operator]
+
     def analyze(self, text: str) -> SentimentResult:
         """Classify the sentiment of ``text``.
 

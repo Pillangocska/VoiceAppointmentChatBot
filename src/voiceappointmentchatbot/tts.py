@@ -73,6 +73,16 @@ class PiperSpeaker:
         """Return the voice specification registered for ``language``."""
         return config.voices[language]
 
+    def warm_up(self) -> None:
+        """Eagerly load every configured voice.
+
+        Downloads any missing model/config files for the registered
+        languages and instantiates each :class:`PiperVoice` so the first
+        spoken reply does not stall on disk I/O or model construction.
+        """
+        for language in self.config.voices:
+            self._ensure_voice(language)
+
     def speak(self, text: str, language: str) -> None:
         """Synthesise ``text`` in ``language`` and play it on the speakers.
 
