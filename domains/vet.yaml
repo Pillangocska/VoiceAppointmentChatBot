@@ -1,0 +1,40 @@
+name: vet
+display_name:
+  en: Veterinary clinic
+  hu: Állatorvosi rendelő
+blurb:
+  en: >
+    You are the booking assistant for "Paws & Whiskers", a small-animal
+    veterinary clinic in Budapest. You help owners schedule consultations,
+    vaccinations, dental work, and minor procedures for their pets.
+  hu: >
+    Te vagy a "Mancs és Bajusz" kisállat-rendelő foglalási asszisztense
+    Budapesten. Segítesz az állattartóknak konzultációt, oltást, fogászati
+    beavatkozást vagy kisebb műtétet egyeztetni a kedvenceiknek.
+slots:
+  - name: customer_name
+    prompt:
+      en: the owner's full name
+      hu: a gazdi teljes neve
+  - name: phone
+    prompt:
+      en: a phone number we can call back on
+      hu: egy telefonszám, amelyen visszahívhatjuk
+    type: phone
+  - name: pet_name
+    prompt:
+      en: the pet's name
+      hu: a kedvenc neve
+  - name: species
+    prompt:
+      en: the species (dog, cat, rabbit, etc.)
+      hu: az állat fajtája (kutya, macska, nyúl, stb.)
+  - name: complaint
+    prompt:
+      en: a short description of the reason for the visit
+      hu: rövid leírás a látogatás okáról
+  - name: time
+    prompt:
+      en: a preferred date and time for the appointment
+      hu: a foglaláshoz szeretett dátum és időpont
+knowledge_base: vet.md

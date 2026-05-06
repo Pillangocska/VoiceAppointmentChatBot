@@ -82,6 +82,41 @@ class WhisperConfig:
 
 
 @dataclass(frozen=True)
+class KnowledgeBaseConfig:
+    """Configuration for the bilingual retrieval-augmented knowledge base.
+
+    Attributes:
+        embedding_model: Sentence-Transformers model id used to embed
+            both the document chunks and incoming questions. The default
+            is multilingual and covers EN and HU on CPU comfortably.
+        top_k: Number of chunks returned per query.
+        chunk_min_chars: Paragraphs shorter than this are merged with
+            their neighbours during chunking.
+    """
+
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    top_k: int = 3
+    chunk_min_chars: int = 80
+
+
+@dataclass(frozen=True)
+class AnthropicConfig:
+    """Configuration for the Anthropic Claude API client.
+
+    Attributes:
+        api_key: Anthropic API key. Empty string when unset; the
+            dialogue manager checks this before making LLM calls so the
+            rest of the pipeline can be exercised without a key.
+        model: Claude model identifier used for chat completions.
+        max_tokens: Maximum response length per turn.
+    """
+
+    api_key: str = ""
+    model: str = "claude-haiku-4-5-20251001"
+    max_tokens: int = 512
+
+
+@dataclass(frozen=True)
 class SentimentConfig:
     """Configuration for the multilingual text-based sentiment classifier.
 
@@ -173,6 +208,10 @@ class AppConfig:
         whisper: ASR model settings.
         sentiment: Sentiment classifier settings.
         piper: TTS voice settings.
+        anthropic: Claude API client settings.
+        knowledge: Retrieval-augmented knowledge base settings.
+        domain: Active business domain identifier (e.g. ``vet``).
+        domains_dir: Directory containing the domain YAML and KB files.
         output_dir: Directory where appointment JSON files are written.
     """
 
@@ -181,6 +220,10 @@ class AppConfig:
     whisper: WhisperConfig = field(default_factory=WhisperConfig)
     sentiment: SentimentConfig = field(default_factory=SentimentConfig)
     piper: PiperConfig = field(default_factory=PiperConfig)
+    anthropic: AnthropicConfig = field(default_factory=AnthropicConfig)
+    knowledge: KnowledgeBaseConfig = field(default_factory=KnowledgeBaseConfig)
+    domain: str = "vet"
+    domains_dir: Path = Path("domains")
     output_dir: Path = Path("output")
 
     @classmethod
@@ -230,6 +273,40 @@ class AppConfig:
         out_dir = _nested_get(data, ("output", "dir"))
         if isinstance(out_dir, str) and out_dir:
             config = replace(config, output_dir=Path(out_dir))
+
+        anthropic_overrides: Dict[str, Any] = {}
+        api_key = _nested_get(data, ("anthropic", "api_key"))
+        if isinstance(api_key, str) and api_key.strip():
+            anthropic_overrides["api_key"] = api_key.strip()
+            os.environ.setdefault("ANTHROPIC_API_KEY", api_key.strip())
+        model_id = _nested_get(data, ("anthropic", "model"))
+        if isinstance(model_id, str) and model_id.strip():
+            anthropic_overrides["model"] = model_id.strip()
+        max_tokens = _nested_get(data, ("anthropic", "max_tokens"))
+        if isinstance(max_tokens, int) and max_tokens > 0:
+            anthropic_overrides["max_tokens"] = max_tokens
+        if anthropic_overrides:
+            config = replace(
+                config, anthropic=replace(config.anthropic, **anthropic_overrides)
+            )
+
+        kb_overrides: Dict[str, Any] = {}
+        kb_model = _nested_get(data, ("knowledge", "embedding_model"))
+        if isinstance(kb_model, str) and kb_model.strip():
+            kb_overrides["embedding_model"] = kb_model.strip()
+        kb_top_k = _nested_get(data, ("knowledge", "top_k"))
+        if isinstance(kb_top_k, int) and kb_top_k > 0:
+            kb_overrides["top_k"] = kb_top_k
+        if kb_overrides:
+            config = replace(config, knowledge=replace(config.knowledge, **kb_overrides))
+
+        domain_name = _nested_get(data, ("domain",))
+        if isinstance(domain_name, str) and domain_name.strip():
+            config = replace(config, domain=domain_name.strip())
+
+        domains_dir = _nested_get(data, ("domains", "dir"))
+        if isinstance(domains_dir, str) and domains_dir:
+            config = replace(config, domains_dir=Path(domains_dir))
 
         return config
 

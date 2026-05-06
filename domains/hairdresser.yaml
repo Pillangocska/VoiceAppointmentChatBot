@@ -1,0 +1,32 @@
+name: hairdresser
+display_name:
+  en: Hair salon
+  hu: Fodrászat
+blurb:
+  en: >
+    You are the booking assistant for "Studio Lumen", an independent hair
+    salon in central Budapest. You help clients book cuts, colour
+    treatments, and styling appointments.
+  hu: >
+    Te vagy a "Studio Lumen" belvárosi fodrászat foglalási asszisztense
+    Budapesten. Segítesz az ügyfeleknek hajvágást, festést és alkalmi
+    frizurát foglalni.
+slots:
+  - name: customer_name
+    prompt:
+      en: the client's full name
+      hu: az ügyfél teljes neve
+  - name: phone
+    prompt:
+      en: a phone number we can confirm the booking on
+      hu: egy telefonszám, amelyen megerősíthetjük a foglalást
+    type: phone
+  - name: service
+    prompt:
+      en: the service requested (cut, colour, blow-dry, etc.)
+      hu: a kért szolgáltatás (vágás, festés, szárítás, stb.)
+  - name: time
+    prompt:
+      en: a preferred date and time for the appointment
+      hu: a foglaláshoz szeretett dátum és időpont
+knowledge_base: hairdresser.md

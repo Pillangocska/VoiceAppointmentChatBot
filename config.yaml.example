@@ -27,3 +27,29 @@ audio:
 output:
   # Directory where appointment JSON files are written.
   dir: "output"
+
+anthropic:
+  # API key from https://console.anthropic.com/. Required for the
+  # week-2 dialogue manager; leave empty to disable LLM calls (handy
+  # for tests that mock the client).
+  api_key: ""
+  # Claude model identifier. Haiku 4.5 is the default — fast and cheap.
+  model: "claude-haiku-4-5-20251001"
+  # Maximum response length per turn.
+  max_tokens: 512
+
+# Active business domain. Must match a YAML file under domains/
+# (e.g. ``vet`` or ``hairdresser``).
+domain: "vet"
+
+domains:
+  # Directory containing the domain YAML and knowledge-base files.
+  dir: "domains"
+
+knowledge:
+  # Sentence-Transformers model used to embed document chunks and
+  # incoming questions. The default is multilingual (EN+HU) and runs
+  # comfortably on CPU.
+  embedding_model: "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  # Number of chunks returned per knowledge-base query.
+  top_k: 3
