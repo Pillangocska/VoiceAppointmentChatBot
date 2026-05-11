@@ -124,9 +124,6 @@ changes in a later week, update it here together with the reason.
 ├── domains/
 │   ├── vet.yaml / vet.md
 │   └── hairdresser.yaml / hairdresser.md
-├── scripts/
-│   ├── download_piper_voices.py   # Pre-fetch Piper voices (optional)
-│   └── prefetch_models.py         # Pre-fetch HF Whisper + sentiment models (optional)
 ├── tests/
 │   ├── test_dialogue.py
 │   ├── test_domains.py
@@ -152,17 +149,11 @@ Requires Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
 uv sync                                      # CPU-only install
 uv sync --extra cuda                         # NVIDIA GPU users (~1.2 GB extra wheels)
 cp config.yaml.example config.yaml           # then edit huggingface.token
-uv run python scripts/prefetch_models.py     # optional, shows progress
 ```
 
 Piper voice files are downloaded automatically on the first `vetbot` run
 (roughly 60 MB per language, with a `[piper] downloading ...` log line),
 so `scripts/download_piper_voices.py` is only needed for offline demos.
-
-The HF model prefetch is optional but recommended: without it the first
-`vetbot` run downloads the Whisper weights (~1.5 GB for `large-v3`) and
-the sentiment model (~1.1 GB) lazily on first use. The progress bars are
-visible either way, but doing this up front avoids a long pause mid-loop.
 
 GPU acceleration on NVIDIA cards is opt-in via the `cuda` extra, which
 installs the cuBLAS, cuDNN, and NVRTC runtime wheels needed by

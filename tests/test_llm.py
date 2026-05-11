@@ -51,6 +51,7 @@ def test_system_prompt_includes_both_languages(vet_domain: Any) -> None:
     assert "customer_name" in prompt
     assert "phone" in prompt
     assert "digit-by-digit" in prompt
+    assert "iso" in prompt
 
 
 def test_tools_constrain_slot_names_to_domain(vet_domain: Any) -> None:
@@ -61,6 +62,7 @@ def test_tools_constrain_slot_names_to_domain(vet_domain: Any) -> None:
     assert set(update["input_schema"]["properties"]["name"]["enum"]) == set(
         vet_domain.slot_names
     )
+    assert "iso" in update["input_schema"]["properties"]
     declared = {tool["name"] for tool in tools}
     assert declared == {
         TOOL_UPDATE_SLOT,
@@ -83,13 +85,17 @@ def test_state_snapshot_lists_filled_and_missing_slots(vet_domain: Any) -> None:
     assert "confirmed" in snapshot
     assert "pending" in snapshot
     assert "pet_name: not yet provided" in snapshot
+    assert "CURRENT TIME" in snapshot
 
 
 def test_state_snapshot_when_empty(vet_domain: Any) -> None:
-    """Empty state renders a clear placeholder line."""
+    """Empty state still announces the current time anchor."""
     state = BookingState(domain=vet_domain)
 
-    assert _format_state_snapshot(state) == "BOOKING STATE\nNo slots filled yet."
+    snapshot = _format_state_snapshot(state)
+
+    assert "CURRENT TIME" in snapshot
+    assert "BOOKING STATE\nNo slots filled yet." in snapshot
 
 
 def test_parse_response_extracts_text_and_tool_calls() -> None:

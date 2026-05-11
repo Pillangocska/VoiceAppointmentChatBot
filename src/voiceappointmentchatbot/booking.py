@@ -8,6 +8,7 @@ mishears can be caught before the booking is written to disk.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 import re
 
@@ -65,27 +66,51 @@ class BookingState:
             explicitly via :meth:`confirm_phone`.
         pending_phone_confirmation: ``True`` when a phone value is set
             but still awaiting digit-readback confirmation.
+        normalised: Mapping from slot name to a structured, machine
+            readable version of the value (e.g. ISO 8601 for datetime
+            slots). Populated when the LLM supplies a normalised form
+            alongside the raw value.
+        time_anchor: Reference timestamp shown to the LLM as the
+            "current time" when it resolves relative dates. Defaults
+            to the booking's local creation time; tests can override
+            via :meth:`set_time_anchor` for deterministic behaviour.
     """
 
     domain: Domain
     slots: Dict[str, str] = field(default_factory=dict)
     confirmed_slots: set[str] = field(default_factory=set)
     pending_phone_confirmation: bool = False
+    normalised: Dict[str, str] = field(default_factory=dict)
+    time_anchor: datetime = field(default_factory=lambda: datetime.now().astimezone())
 
-    def set_slot(self, name: str, value: str) -> None:
+    def set_slot(
+        self,
+        name: str,
+        value: str,
+        *,
+        iso: Optional[str] = None,
+    ) -> None:
         """Store ``value`` for the slot ``name`` after light validation.
 
         Phone values are normalised (whitespace, dashes, parentheses are
-        stripped) and the slot is marked as needing confirmation. Other
-        slots are auto-confirmed once set.
+        stripped) and the slot is marked as needing confirmation. For
+        datetime slots an ``iso`` argument is required: the LLM is
+        responsible for converting the user's phrase into an absolute
+        timestamp anchored at :attr:`time_anchor`. The raw value is
+        always kept under :attr:`slots`. Other slots are auto-confirmed
+        once set.
 
         Args:
             name: Slot identifier declared by the active domain.
             value: Raw value as understood by the LLM.
+            iso: ISO 8601 timestamp (``YYYY-MM-DDTHH:MM`` with a
+                timezone offset) for datetime slots. Ignored for other
+                slot types.
 
         Raises:
             KeyError: If the slot is not declared by the domain.
-            ValueError: If the value fails validation for the slot type.
+            ValueError: If the value fails validation for the slot type,
+                or a required ``iso`` argument is missing or malformed.
         """
         spec = self.domain.slot(name)  # raises KeyError on unknown slot
         cleaned = value.strip()
@@ -104,8 +129,34 @@ class BookingState:
             self.pending_phone_confirmation = True
             return
 
+        if spec.type == "datetime":
+            if iso is None or not iso.strip():
+                raise ValueError(
+                    f"slot {name!r} is a datetime slot; pass `iso` with "
+                    f"an absolute timestamp (e.g. 2026-05-12T13:00+02:00)"
+                )
+            parsed_iso = _validate_iso(iso.strip())
+            self.slots[name] = cleaned
+            self.normalised[name] = parsed_iso
+            self.confirmed_slots.add(name)
+            return
+
         self.slots[name] = cleaned
         self.confirmed_slots.add(name)
+
+    def set_time_anchor(self, anchor: datetime) -> None:
+        """Override the reference timestamp shown to the LLM as "now".
+
+        Args:
+            anchor: Timezone-aware datetime. Stored values are not
+                retroactively re-resolved.
+
+        Raises:
+            ValueError: If ``anchor`` is naive (no tzinfo).
+        """
+        if anchor.tzinfo is None:
+            raise ValueError("time anchor must be timezone-aware")
+        self.time_anchor = anchor
 
     def confirm_phone(self) -> None:
         """Mark the stored phone number as confirmed by the user.
@@ -198,3 +249,31 @@ def _is_valid_phone(value: str) -> bool:
     """Whether ``value`` contains at least :data:`_MIN_PHONE_DIGITS` digits."""
     digits = _PHONE_DIGITS_ONLY.sub("", value)
     return len(digits) >= _MIN_PHONE_DIGITS
+
+
+def _validate_iso(value: str) -> str:
+    """Return ``value`` reformatted to ``YYYY-MM-DDTHH:MM±HH:MM``.
+
+    The LLM is asked to emit timestamps in that exact shape; this
+    function parses it with :meth:`datetime.fromisoformat` and re-emits
+    it with minute precision so the stored representation is canonical.
+
+    Args:
+        value: Candidate ISO 8601 timestamp.
+
+    Returns:
+        Canonical timestamp string.
+
+    Raises:
+        ValueError: If ``value`` cannot be parsed as a timezone-aware
+            ISO 8601 timestamp.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"invalid ISO timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(
+            f"ISO timestamp {value!r} is missing a timezone offset"
+        )
+    return parsed.isoformat(timespec="minutes")

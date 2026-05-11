@@ -1,6 +1,6 @@
 """Unit tests for the appointment JSON writer."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import json
 
@@ -21,29 +21,34 @@ from voiceappointmentchatbot.domains import load_domain
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOMAINS_DIR = REPO_ROOT / "domains"
 FIXED_TIMESTAMP = datetime(2026, 5, 6, 14, 32, 11, tzinfo=timezone.utc)
+TIME_ANCHOR = datetime(2026, 5, 6, 14, 32, 11, tzinfo=timezone(timedelta(hours=2)))
 
 
 def _complete_vet_state() -> BookingState:
     """Return a vet state with every slot filled and confirmed."""
     state = BookingState(domain=load_domain("vet", DOMAINS_DIR))
+    state.set_time_anchor(TIME_ANCHOR)
     state.set_slot("customer_name", "Anna Kovács")
     state.set_slot("phone", "+36 1 555 0199")
     state.confirm_phone()
     state.set_slot("pet_name", "Bodri")
     state.set_slot("species", "dog")
     state.set_slot("complaint", "limping for two days")
-    state.set_slot("time", "Friday at 10:00")
+    state.set_slot("time", "Friday at 10:00", iso="2026-05-08T10:00+02:00")
     return state
 
 
 def _complete_hairdresser_state() -> BookingState:
     """Return a hairdresser state with every slot filled and confirmed."""
     state = BookingState(domain=load_domain("hairdresser", DOMAINS_DIR))
+    state.set_time_anchor(TIME_ANCHOR)
     state.set_slot("customer_name", "Réka Nagy")
     state.set_slot("phone", "+36 30 123 4567")
     state.confirm_phone()
     state.set_slot("service", "balayage")
-    state.set_slot("time", "next Saturday at 14:00")
+    state.set_slot(
+        "time", "next Saturday at 14:00", iso="2026-05-16T14:00+02:00"
+    )
     return state
 
 
@@ -80,6 +85,7 @@ def test_serialise_keeps_other_slots_under_slots_key() -> None:
         "species": "dog",
         "complaint": "limping for two days",
         "time": "Friday at 10:00",
+        "time_iso": "2026-05-08T10:00+02:00",
     }
 
 
@@ -179,6 +185,7 @@ def test_hairdresser_record_only_promotes_two_fields() -> None:
     assert payload["slots"] == {
         "service": "balayage",
         "time": "next Saturday at 14:00",
+        "time_iso": "2026-05-16T14:00+02:00",
     }
 
 

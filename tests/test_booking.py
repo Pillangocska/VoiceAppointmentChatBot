@@ -1,5 +1,6 @@
 """Unit tests for the booking state and slot validation."""
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -95,7 +96,7 @@ def test_full_vet_booking_is_complete(vet_state: BookingState) -> None:
     vet_state.set_slot("pet_name", "Bodri")
     vet_state.set_slot("species", "dog")
     vet_state.set_slot("complaint", "limping for two days")
-    vet_state.set_slot("time", "Friday at 10:00")
+    vet_state.set_slot("time", "Friday at 10:00", iso="2026-05-15T10:00+02:00")
 
     assert vet_state.is_complete()
     assert vet_state.missing_slots() == ()
@@ -109,7 +110,9 @@ def test_hairdresser_booking_completes_with_four_slots(
     hairdresser_state.set_slot("phone", "+36 30 123 4567")
     hairdresser_state.confirm_phone()
     hairdresser_state.set_slot("service", "balayage")
-    hairdresser_state.set_slot("time", "next Saturday at 14:00")
+    hairdresser_state.set_slot(
+        "time", "next Saturday at 14:00", iso="2026-05-16T14:00+02:00"
+    )
 
     assert hairdresser_state.is_complete()
 
@@ -154,3 +157,48 @@ def test_confirm_phone_when_already_confirmed_raises(vet_state: BookingState) ->
 
     with pytest.raises(RuntimeError):
         vet_state.confirm_phone()
+
+
+def test_datetime_slot_stores_raw_value_and_iso(vet_state: BookingState) -> None:
+    """The raw phrase goes under ``slots`` and the iso under ``normalised``."""
+    vet_state.set_slot(
+        "time", "holnap tizenhárom órakor", iso="2026-05-12T13:00+02:00"
+    )
+
+    assert vet_state.slots["time"] == "holnap tizenhárom órakor"
+    assert vet_state.normalised["time"] == "2026-05-12T13:00+02:00"
+
+
+def test_datetime_slot_requires_iso(vet_state: BookingState) -> None:
+    """Omitting ``iso`` for a datetime slot is an error the model must fix."""
+    with pytest.raises(ValueError, match="datetime slot"):
+        vet_state.set_slot("time", "holnap 12:30")
+
+
+def test_datetime_slot_rejects_malformed_iso(vet_state: BookingState) -> None:
+    """A malformed ISO timestamp surfaces a clear ``ValueError``."""
+    with pytest.raises(ValueError, match="invalid ISO timestamp"):
+        vet_state.set_slot("time", "holnap 12:30", iso="tomorrow at 1pm")
+
+
+def test_datetime_slot_rejects_naive_iso(vet_state: BookingState) -> None:
+    """An ISO timestamp without a timezone offset is rejected."""
+    with pytest.raises(ValueError, match="timezone offset"):
+        vet_state.set_slot("time", "holnap 12:30", iso="2026-05-12T13:00")
+
+
+def test_datetime_iso_is_canonicalised(vet_state: BookingState) -> None:
+    """Stored iso strings are reformatted to minute precision."""
+    vet_state.set_slot(
+        "time", "tomorrow 1 pm", iso="2026-05-12T13:00:00+02:00"
+    )
+
+    assert vet_state.normalised["time"] == "2026-05-12T13:00+02:00"
+
+
+def test_set_time_anchor_rejects_naive_datetime(vet_state: BookingState) -> None:
+    """The anchor must carry timezone information to avoid drift."""
+    naive = datetime(2026, 5, 11, 9, 0)
+
+    with pytest.raises(ValueError):
+        vet_state.set_time_anchor(naive)

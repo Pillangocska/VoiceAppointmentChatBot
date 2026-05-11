@@ -11,7 +11,15 @@ export class PushToTalkRecorder {
 
   async start(): Promise<void> {
     if (this.recorder) return;
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        channelCount: 1,
+        sampleRate: 16000,
+      },
+    });
     this.chunks = [];
     this.recorder = new MediaRecorder(this.stream);
     this.recorder.ondataavailable = (event) => {

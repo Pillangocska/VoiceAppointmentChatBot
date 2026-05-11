@@ -202,6 +202,38 @@ def test_update_slot_tool_writes_to_booking_state(
     assert len(client.calls) == 2  # initial call + after-tool call
 
 
+def test_update_slot_with_iso_stores_normalised_timestamp(
+    vet_manager_factory: _ManagerFactory,
+) -> None:
+    """The ``iso`` argument on ``update_slot`` populates ``normalised``."""
+    turns = [
+        _tool_turn(
+            ToolCall(
+                id="t1",
+                name=TOOL_UPDATE_SLOT,
+                arguments={
+                    "name": "time",
+                    "value": "holnap tizenhárom órakor",
+                    "iso": "2026-05-12T13:00+02:00",
+                },
+            )
+        ),
+        _text_turn("Rendben, holnap 13:00-ra foglaltam."),
+    ]
+    manager, _ = vet_manager_factory(turns=turns)
+
+    manager.handle_user_turn(
+        Transcript(
+            text="Ha lehet, akkor holnap tizenhárom órakor vinném.",
+            language="hu",
+            language_probability=0.99,
+        )
+    )
+
+    assert manager.state.slots["time"] == "holnap tizenhárom órakor"
+    assert manager.state.normalised["time"] == "2026-05-12T13:00+02:00"
+
+
 def test_phone_update_then_confirmation_flow(
     vet_manager_factory: _ManagerFactory,
 ) -> None:
@@ -362,7 +394,7 @@ def test_confirm_appointment_invokes_sink_when_state_complete(
     manager.state.set_slot("pet_name", "Bodri")
     manager.state.set_slot("species", "dog")
     manager.state.set_slot("complaint", "limping")
-    manager.state.set_slot("time", "Friday at 10:00")
+    manager.state.set_slot("time", "Friday at 10:00", iso="2026-05-15T10:00+02:00")
 
     result = manager.handle_user_turn(
         Transcript(text="yes please book it", language="en", language_probability=0.99)

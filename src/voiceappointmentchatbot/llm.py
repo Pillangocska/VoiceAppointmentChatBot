@@ -16,6 +16,7 @@ the booking state.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from voiceappointmentchatbot.booking import BookingState
@@ -83,8 +84,15 @@ def build_system_prompt(domain: Domain) -> str:
     slot_lines_en = []
     slot_lines_hu = []
     for spec in domain.slots:
-        suffix = " (must be confirmed digit-by-digit)" if spec.type == "phone" else ""
-        suffix_hu = " (számjegyenként meg kell erősíteni)" if spec.type == "phone" else ""
+        if spec.type == "phone":
+            suffix = " (must be confirmed digit-by-digit)"
+            suffix_hu = " (számjegyenként meg kell erősíteni)"
+        elif spec.type == "datetime":
+            suffix = " (include both a date and a clock time)"
+            suffix_hu = " (dátumot és pontos időt is meg kell adni)"
+        else:
+            suffix = ""
+            suffix_hu = ""
         slot_lines_en.append(f"  - {spec.name}: {spec.prompt_for('en')}{suffix}")
         slot_lines_hu.append(f"  - {spec.name}: {spec.prompt_for('hu')}{suffix_hu}")
     slots_block_en = "\n".join(slot_lines_en)
@@ -114,9 +122,14 @@ def build_system_prompt(domain: Domain) -> str:
         f"English descriptions:\n{slots_block_en}\n\n"
         f"Hungarian descriptions:\n{slots_block_hu}\n\n"
         "TOOLS\n"
-        "- `update_slot(name, value)`: Store a slot value. `name` must "
-        "be one of the slot identifiers above; `value` is the raw "
-        "string the user said, in the original language.\n"
+        "- `update_slot(name, value, iso?)`: Store a slot value. `name` "
+        "must be one of the slot identifiers above; `value` is the raw "
+        "string the user said, in the original language. For datetime "
+        "slots you must ALSO pass `iso`: the absolute timestamp in "
+        "`YYYY-MM-DDTHH:MM` form with a `+HH:MM` / `-HH:MM` offset, "
+        "resolved against the CURRENT TIME block. Resolve relative "
+        "phrases like 'holnap', 'tomorrow', 'next Friday' yourself "
+        "using that anchor. Omit `iso` for non-datetime slots.\n"
         "- `ask_kb(question)`: Search the practice's knowledge base "
         "(prices, hours, services) when the user asks a factual "
         "question you do not already know. Use the answer to ground "
@@ -160,7 +173,9 @@ def build_tools(domain: Domain) -> List[Dict[str, Any]]:
             "description": (
                 "Store one slot value extracted from the user's last "
                 "message. Call once per slot. Do not call with values "
-                "the user has not actually given."
+                "the user has not actually given. For datetime slots "
+                "also pass `iso` with the absolute timestamp resolved "
+                "against CURRENT TIME."
             ),
             "input_schema": {
                 "type": "object",
@@ -173,6 +188,15 @@ def build_tools(domain: Domain) -> List[Dict[str, Any]]:
                     "value": {
                         "type": "string",
                         "description": "Raw user-provided value for the slot.",
+                    },
+                    "iso": {
+                        "type": "string",
+                        "description": (
+                            "Absolute timestamp for datetime slots in "
+                            "`YYYY-MM-DDTHH:MM+HH:MM` form (e.g. "
+                            "`2026-05-12T13:00+02:00`). Required when "
+                            "the slot is a datetime slot; omit otherwise."
+                        ),
                     },
                 },
                 "required": ["name", "value"],
@@ -304,20 +328,33 @@ class HaikuClient:
 
 
 def _format_state_snapshot(state: BookingState) -> str:
-    """Render the current booking state as a short note for the model."""
+    """Render the current booking state and time anchor as a per-turn note."""
+    now_iso = state.time_anchor.isoformat(timespec="minutes")
+    weekday = state.time_anchor.strftime("%A")
+    header = (
+        "CURRENT TIME\n"
+        f"{now_iso} ({weekday}). Use this when resolving relative dates "
+        f"like 'holnap' or 'tomorrow' for the `iso` argument of "
+        f"`update_slot`."
+    )
     if not state.slots:
-        return "BOOKING STATE\nNo slots filled yet."
-
-    lines = ["BOOKING STATE"]
-    for spec in state.domain.slots:
-        if spec.name in state.slots:
-            confirmed = "confirmed" if spec.name in state.confirmed_slots else "pending"
-            lines.append(f"- {spec.name} = {state.slots[spec.name]!r} ({confirmed})")
-        else:
-            lines.append(f"- {spec.name}: not yet provided")
-    if state.pending_phone_confirmation:
-        lines.append("Phone is awaiting digit-readback confirmation.")
-    return "\n".join(lines)
+        body = "BOOKING STATE\nNo slots filled yet."
+    else:
+        lines = ["BOOKING STATE"]
+        for spec in state.domain.slots:
+            if spec.name in state.slots:
+                confirmed = (
+                    "confirmed" if spec.name in state.confirmed_slots else "pending"
+                )
+                lines.append(
+                    f"- {spec.name} = {state.slots[spec.name]!r} ({confirmed})"
+                )
+            else:
+                lines.append(f"- {spec.name}: not yet provided")
+        if state.pending_phone_confirmation:
+            lines.append("Phone is awaiting digit-readback confirmation.")
+        body = "\n".join(lines)
+    return f"{header}\n\n{body}"
 
 
 def _parse_response(response: Any) -> AssistantTurn:

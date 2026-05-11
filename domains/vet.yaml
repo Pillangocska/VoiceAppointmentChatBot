@@ -37,4 +37,16 @@ slots:
     prompt:
       en: a preferred date and time for the appointment
       hu: a foglaláshoz szeretett dátum és időpont
+    type: datetime
 knowledge_base: vet.md
+asr_prompts:
+  en: >
+    Veterinary appointment booking at Paws & Whiskers clinic in Budapest.
+    The caller gives their name, phone number, the pet's name, species
+    (dog, cat, rabbit), and the reason for the visit such as vaccination,
+    dental cleaning, limping, or a check-up.
+  hu: >
+    Időpontfoglalás a Mancs és Bajusz állatorvosi rendelőben Budapesten.
+    A gazdi megadja a nevét, telefonszámát, a kedvenc nevét, az állat
+    fajtáját (kutya, macska, nyúl) és a látogatás okát: oltás, fogászat,
+    sántít, vizsgálat. Időpontot szeretnék foglalni holnap fél tízre.

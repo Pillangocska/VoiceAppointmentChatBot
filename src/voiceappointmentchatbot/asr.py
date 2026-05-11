@@ -5,12 +5,12 @@ Loads a single Whisper model sized to the available device and exposes a
 language Whisper detected for the utterance.
 """
 
-from importlib.util import find_spec
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
 import os
 import sys
+from dataclasses import dataclass
+from importlib.util import find_spec
+from pathlib import Path
+from typing import Optional
 
 import numpy as np
 from faster_whisper import WhisperModel
@@ -55,31 +55,50 @@ class Transcript:
 
 
 _SUPPORTED_LANGUAGES = ("en", "hu")
-_LOCK_CONFIDENCE = 0.9
+_LOCK_CONFIDENCE = 0.6
 
 
 class WhisperTranscriber:
     """Thin wrapper that lazily loads a faster-whisper model.
 
     The transcriber starts in auto-detect mode. The first time Whisper
-    reports an EN or HU detection at probability ``>= 0.9`` the language
+    reports an EN or HU detection at probability ``>= 0.6`` the language
     is *locked*: every subsequent call passes that code as the
     ``language=`` argument to ``model.transcribe`` so a one-off mistaken
     detection (Hungarian utterance tagged ``sk``, etc.) cannot derail
     the rest of the conversation.
+
+    A per-language ``initial_prompt`` biases the decoder toward the
+    domain vocabulary (pet names, "foglalni", "rendelő", ...) so common
+    booking words are less likely to come back as garbled neighbours.
 
     Attributes:
         device: Compute device the underlying model runs on.
         config: Whisper model selection rules.
         locked_language: ISO 639-1 code Whisper is pinned to, or
             ``None`` while still auto-detecting.
+        prompts: Mapping from ISO 639-1 code to the ``initial_prompt``
+            forwarded to faster-whisper for utterances in that language.
     """
 
-    def __init__(self, device: Device, config: WhisperConfig) -> None:
-        """Initialise without loading the model yet."""
+    def __init__(
+        self,
+        device: Device,
+        config: WhisperConfig,
+        prompts: Optional[dict[str, str]] = None,
+    ) -> None:
+        """Initialise without loading the model yet.
+
+        Args:
+            device: Target compute device for the Whisper model.
+            config: Whisper model selection and decoding parameters.
+            prompts: Optional language-keyed ``initial_prompt`` strings
+                used to bias decoding toward domain vocabulary.
+        """
         self.device = device
         self.config = config
         self.locked_language: Optional[str] = None
+        self.prompts: dict[str, str] = dict(prompts or {})
         self._model: Optional[WhisperModel] = None
 
     def _ensure_loaded(self) -> WhisperModel:
@@ -114,7 +133,9 @@ class WhisperTranscriber:
 
         Once :attr:`locked_language` is set the language argument is
         forwarded to faster-whisper so it skips its own detection step
-        and decodes the utterance in the locked language.
+        and decodes the utterance in the locked language. When a prompt
+        is registered for the active language it is passed as
+        ``initial_prompt`` to bias decoding toward domain vocabulary.
 
         Args:
             audio: Mono float32 PCM samples at 16 kHz.
@@ -127,10 +148,15 @@ class WhisperTranscriber:
             return Transcript(text="", language="en", language_probability=0.0)
 
         model = self._ensure_loaded()
+        initial_prompt = self.prompts.get(self.locked_language) if self.locked_language else None
         segments, info = model.transcribe(
             audio,
             beam_size=5,
             language=self.locked_language,
+            initial_prompt=initial_prompt,
+            condition_on_previous_text=False,
+            no_speech_threshold=0.5,
+            vad_filter=True,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()
         language = info.language

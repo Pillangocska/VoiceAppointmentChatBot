@@ -5,9 +5,9 @@ device while the caller is holding the record key, and returns the
 captured signal as a single NumPy array suitable for ASR.
 """
 
-from typing import List
 import queue
 import sys
+from typing import List
 
 import numpy as np
 import sounddevice as sd

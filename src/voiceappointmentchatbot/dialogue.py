@@ -199,9 +199,12 @@ class DialogueManager:
         """Apply an ``update_slot`` call to the booking state."""
         name = arguments.get("name")
         value = arguments.get("value")
+        iso = arguments.get("iso")
         if not isinstance(name, str) or not isinstance(value, str):
             raise ValueError("update_slot requires 'name' and 'value' strings")
-        self.state.set_slot(name, value)
+        if iso is not None and not isinstance(iso, str):
+            raise ValueError("update_slot 'iso' must be a string when provided")
+        self.state.set_slot(name, value, iso=iso)
         spec = self.state.domain.slot(name)
         stored = self.state.slots[name]
         if spec.type == "phone":
@@ -210,6 +213,8 @@ class DialogueManager:
                 f"stored {name}={stored!r}; readback ({self._last_user_language}): "
                 f"{readback}; awaiting confirm_phone after the user responds."
             )
+        if spec.type == "datetime":
+            return f"stored {name}={stored!r}; iso={self.state.normalised[name]}"
         return f"stored {name}={stored!r}"
 
     def _tool_ask_kb(self, arguments: Dict[str, Any]) -> str:

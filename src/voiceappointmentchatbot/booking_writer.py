@@ -104,11 +104,14 @@ def serialise_record(record: AppointmentRecord) -> Dict[str, Any]:
         "name": state.slots.get("customer_name", ""),
         "phone": state.slots.get("phone", ""),
     }
-    other_slots: Dict[str, str] = {
-        name: value
-        for name, value in state.slots.items()
-        if name not in _PROMOTED_SLOTS
-    }
+    other_slots: Dict[str, str] = {}
+    for name, value in state.slots.items():
+        if name in _PROMOTED_SLOTS:
+            continue
+        other_slots[name] = value
+        iso = state.normalised.get(name)
+        if iso is not None:
+            other_slots[f"{name}_iso"] = iso
 
     payload: Dict[str, Any] = {
         "domain": state.domain.name,

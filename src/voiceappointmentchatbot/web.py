@@ -70,7 +70,11 @@ class _Pipeline:
         self.domain: Domain = load_domain(
             self.config.domain, self.config.domains_dir
         )
-        self.transcriber = WhisperTranscriber(self.config.device, self.config.whisper)
+        self.transcriber = WhisperTranscriber(
+            self.config.device,
+            self.config.whisper,
+            prompts=dict(self.domain.asr_prompts),
+        )
         self.sentiment = TextSentimentAnalyzer(
             self.config.device, self.config.sentiment
         )

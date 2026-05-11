@@ -29,4 +29,16 @@ slots:
     prompt:
       en: a preferred date and time for the appointment
       hu: a foglaláshoz szeretett dátum és időpont
+    type: datetime
 knowledge_base: hairdresser.md
+asr_prompts:
+  en: >
+    Hair salon appointment booking at Studio Lumen in central Budapest.
+    The client gives their name, phone number, the requested service —
+    cut, colour, balayage, blow-dry, styling — and a preferred date and
+    time for the appointment.
+  hu: >
+    Időpontfoglalás a Studio Lumen belvárosi fodrászatban Budapesten.
+    Az ügyfél megadja a nevét, telefonszámát, a kért szolgáltatást —
+    hajvágás, festés, melír, szárítás, alkalmi frizura — és a foglalás
+    kívánt időpontját. Időpontot szeretnék foglalni péntekre.

@@ -7,7 +7,7 @@ base. Adding a new domain is a configuration change rather than a code
 change.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Mapping, Optional, Tuple
 from pathlib import Path
 
@@ -52,6 +52,10 @@ class Domain:
         slots: Ordered slot specifications.
         knowledge_base_path: Absolute path to the markdown knowledge
             base file for this domain.
+        asr_prompts: Per-language ``initial_prompt`` strings forwarded
+            to faster-whisper to bias decoding toward domain vocabulary
+            (pet names, "foglalni", "rendelő", ...). Empty mapping by
+            default; falls back to no biasing when a language is missing.
     """
 
     name: str
@@ -59,6 +63,7 @@ class Domain:
     blurbs: Mapping[str, str]
     slots: Tuple[SlotSpec, ...]
     knowledge_base_path: Path
+    asr_prompts: Mapping[str, str] = field(default_factory=dict)
 
     def display_name(self, language: str) -> str:
         """Return the localised display name with EN fallback."""
@@ -152,13 +157,47 @@ def _parse_domain(data: Mapping[str, object], domains_dir: Path) -> Domain:
     if not isinstance(kb_value, str) or not kb_value:
         raise ValueError(f"domain {name!r} is missing 'knowledge_base'")
 
+    asr_prompts = _parse_asr_prompts(data.get("asr_prompts"), name)
+
     return Domain(
         name=name,
         display_names=display_names,
         blurbs={lang: text.strip() for lang, text in blurbs.items()},
         slots=slots,
         knowledge_base_path=domains_dir / kb_value,
+        asr_prompts=asr_prompts,
     )
+
+
+def _parse_asr_prompts(value: object, domain_name: str) -> Dict[str, str]:
+    """Validate the optional ``asr_prompts`` mapping.
+
+    Args:
+        value: Raw YAML value (typically a mapping or ``None``).
+        domain_name: Domain identifier, used in error messages.
+
+    Returns:
+        Mapping from supported language code to prompt string. Empty
+        mapping when ``value`` is missing.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise ValueError(f"domain {domain_name!r}: asr_prompts must be a mapping")
+    result: Dict[str, str] = {}
+    for lang, text in value.items():
+        if not isinstance(lang, str) or lang not in SUPPORTED_LANGUAGES:
+            raise ValueError(
+                f"domain {domain_name!r}: asr_prompts has unsupported "
+                f"language {lang!r}"
+            )
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(
+                f"domain {domain_name!r}: asr_prompts[{lang!r}] must be "
+                f"a non-empty string"
+            )
+        result[lang] = text.strip()
+    return result
 
 
 def _parse_slot(item: object, domain_name: str) -> SlotSpec:

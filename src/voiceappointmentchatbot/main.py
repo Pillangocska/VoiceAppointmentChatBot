@@ -88,7 +88,9 @@ def main() -> None:
     print(f"[init] model={config.anthropic.model}")
 
     recorder = HoldToRecord(config.audio)
-    transcriber = WhisperTranscriber(config.device, config.whisper)
+    transcriber = WhisperTranscriber(
+        config.device, config.whisper, prompts=dict(domain.asr_prompts)
+    )
     sentiment = TextSentimentAnalyzer(config.device, config.sentiment)
     speaker = PiperSpeaker(config.piper)
     llm = HaikuClient(config.anthropic, domain)
