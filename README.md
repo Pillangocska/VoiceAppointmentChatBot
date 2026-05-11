@@ -186,6 +186,43 @@ Press Enter to start recording, speak, press Enter again to stop. The
 bot transcribes, classifies sentiment, prints both, and reads back the
 echo reply through the speakers. Ctrl+C to exit.
 
+## Web frontend (week 3)
+
+A React + Vite SPA in `frontend/` talks to a FastAPI WebSocket server
+that reuses the exact same Whisper / sentiment / dialogue / Piper
+pipeline as the CLI. The browser handles microphone capture
+(push-to-talk button) and audio playback; the server does everything
+else.
+
+Prerequisites: Node 18+ and `ffmpeg` on PATH (the server shells out to
+ffmpeg once per utterance to decode the browser's WebM/Opus audio into
+16 kHz PCM for Whisper).
+
+```bash
+# one-time
+cd frontend
+pnpm install
+pnpm run build       # writes frontend/dist
+cd ..
+
+# then, on every run
+uv run vetbot-web   # serves SPA + WebSocket on http://127.0.0.1:8000
+```
+
+Open `http://127.0.0.1:8000` and hold the round button to record. Live
+transcripts and bot replies appear as chat bubbles; the right-hand
+panel shows the booking slots filling in and a sentiment indicator.
+When the bot finalises the booking, a "Download JSON" button surfaces
+the same record that the CLI writes to `output/`.
+
+For frontend development with hot reload, run the backend and Vite in
+parallel:
+
+```bash
+uv run vetbot-web        # backend on :8000
+cd frontend && pnpm run dev   # Vite dev server on :5173, proxies /api and /ws
+```
+
 ## Development
 
 ```bash

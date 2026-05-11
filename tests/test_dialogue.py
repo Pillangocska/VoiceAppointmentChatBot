@@ -11,6 +11,7 @@ from collections import deque
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Protocol
+
 import pytest
 
 from voiceappointmentchatbot.asr import Transcript
@@ -18,14 +19,13 @@ from voiceappointmentchatbot.booking import BookingState
 from voiceappointmentchatbot.dialogue import DialogueManager, DialogueResult
 from voiceappointmentchatbot.domains import load_domain
 from voiceappointmentchatbot.llm import (
-    AssistantTurn,
     TOOL_ASK_KB,
     TOOL_CONFIRM_APPOINTMENT,
     TOOL_CONFIRM_PHONE,
     TOOL_UPDATE_SLOT,
+    AssistantTurn,
     ToolCall,
 )
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOMAINS_DIR = REPO_ROOT / "domains"
