@@ -1,51 +1,45 @@
 # VoiceAppointmentChatBot
 
 A bilingual (English / Hungarian) voice chatbot that books appointments
-with a veterinary practice. Built as a four-week university project.
+with a veterinary practice. The user speaks into the microphone, the bot transcribes the utterance, detects the language and sentiment, and responds with synthesised speech. The dialogue asks for the most important information to be confirmed. User identification (name, email, phone number or other method), time, treatment or service chosen, other extra information requested (e.g. emotional state). Final appointment details are written to a JSON file.
 
-The user speaks into the microphone, the bot transcribes the utterance,
-detects the language and sentiment, and responds with synthesised speech.
-Final appointment details are written to a JSON file.
+## Setup and run
 
-## Status
+Requires Python 3.12, [`uv`](https://docs.astral.sh/uv/), Node 18+ and `ffmpeg` on PATH (the server shells out to ffmpeg once per utterance to decode the browser's WebM/Opus audio into 16 kHz PCM for Whisper).
 
-**Week 1 — implemented and verified end-to-end:**
+```bash
+# CPU-only install
+uv sync
+# NVIDIA GPU users (~1.2 GB extra wheels)
+uv sync --extra cuda
+# then edit huggingface.token
+cp config.yaml.example config.yaml
+# build frontend
+cd frontend
+pnpm install
+pnpm run build
+# start the app
+cd ..
+# serves SPA + WebSocket on http://127.0.0.1:8000
+uv run vetbot-web
+```
 
-- Hold-to-record microphone capture (Enter to start, Enter to stop).
-- Bilingual ASR via `faster-whisper` `large-v3` on GPU / `small` on CPU,
-  with auto language detection per utterance (EN and HU verified).
-- Text-based sentiment classification on the transcript using a
-  multilingual XLM-RoBERTa model.
-- Echo dialogue policy that quotes the user back together with a short
-  sentiment acknowledgement, in the detected language.
-- Piper TTS with `en_US-lessac-medium` and `hu_HU-anna-medium` voices,
-  auto-downloaded on first use, played through the default output device.
-- CUDA acceleration on NVIDIA Blackwell (RTX 50-series) via vendored
-  cuBLAS / cuDNN / NVRTC pip wheels — no system CUDA Toolkit required.
-- Local `config.yaml` for the Hugging Face token and per-user overrides.
+GPU acceleration on NVIDIA cards is opt-in via the `cuda` extra, which
+installs the cuBLAS, cuDNN, and NVRTC runtime wheels needed by
+CTranslate2. No separate CUDA Toolkit install is required; the wheels
+ship the DLLs and `voiceappointmentchatbot.gpu_runtime` registers them
+on the Windows DLL search path (and prepends them to `PATH`) before
+CTranslate2 loads.
 
-**Week 2 — implemented and verified end-to-end:**
-
-- Slot-filling `DialogueManager` driven by Claude Haiku 4.5 with tool
-  use (`update_slot`, `ask_kb`, `confirm_phone`, `confirm_appointment`)
-  rather than free-form JSON, so the model cannot invent fields.
-- Multi-domain support (vet + hairdresser today), configurable via
-  `domains/*.yaml` plus a sibling `*.md` knowledge base — adding a
-  domain is two files, no Python.
-- Bilingual single system prompt with mid-conversation EN/HU switching
-  driven by the latest Whisper-detected language.
-- Retrieval-augmented `ask_kb` tool over
-  `paraphrase-multilingual-MiniLM-L12-v2` embeddings with markdown
-  table-row chunking and cosine similarity, computed in numpy.
-- Phone digit-readback confirmation: `BookingState` renders the stored
-  number as digit words in EN or HU and the model is required to call
-  `confirm_phone(accepted)` after the user responds to the readback.
-- JSON output to `output/appointment_<domain>_<timestamp>.json` with a
-  promoted `customer.name` / `customer.phone` block alongside the rest
-  of the slots, plus optional transcript and sentiment fields.
-- Sentiment averaged across every scored user turn (majority label,
-  ties broken by mean confidence) instead of a single-utterance
-  snapshot.
+## Development
+```bash
+# unit tests
+uv run --extra dev pytest
+# lint
+uv run --extra dev ruff check .
+# type-check
+uv run --extra dev mypy src
+```
 
 ## Architecture
 
@@ -53,13 +47,18 @@ The pipeline is a classic cascade so each stage is observable, testable,
 and swappable. Audio flows left to right; the JSON output is produced by
 the dialogue manager once all required slots are filled (week 2+).
 
-```
-mic -> audio_io -> asr (Whisper) -> sentiment -> DialogueManager -> tts (Piper) -> speakers
-                                                       |  ^  ^
-                                                       |  |  +-- HaikuClient (Claude Haiku 4.5, tool use)
-                                                       |  +----- KnowledgeBase (RAG over domains/*.md)
-                                                       v
-                                                appointment_<domain>_<ts>.json
+```mermaid
+flowchart LR
+    mic([mic]) --> audio_io[audio_io]
+    audio_io --> asr["asr (Whisper)"]
+    asr --> sentiment[sentiment]
+    sentiment --> dm[DialogueManager]
+    dm --> tts["tts (Piper)"]
+    tts --> speakers([speakers])
+
+    haiku["HaikuClient<br/>(Claude Haiku 4.5, tool use)"] <--> dm
+    kb["KnowledgeBase<br/>(RAG over domains/*.md)"] --> dm
+    dm --> json[("appointment_&lt;domain&gt;_&lt;ts&gt;.json")]
 ```
 
 ## Decisions
@@ -140,91 +139,3 @@ changes in a later week, update it here together with the reason.
 ├── pyproject.toml
 └── README.md
 ```
-
-## Setup
-
-Requires Python 3.12 and [`uv`](https://docs.astral.sh/uv/).
-
-```bash
-uv sync                                      # CPU-only install
-uv sync --extra cuda                         # NVIDIA GPU users (~1.2 GB extra wheels)
-cp config.yaml.example config.yaml           # then edit huggingface.token
-```
-
-Piper voice files are downloaded automatically on the first `vetbot` run
-(roughly 60 MB per language, with a `[piper] downloading ...` log line),
-so `scripts/download_piper_voices.py` is only needed for offline demos.
-
-GPU acceleration on NVIDIA cards is opt-in via the `cuda` extra, which
-installs the cuBLAS, cuDNN, and NVRTC runtime wheels needed by
-CTranslate2. No separate CUDA Toolkit install is required; the wheels
-ship the DLLs and `voiceappointmentchatbot.gpu_runtime` registers them
-on the Windows DLL search path (and prepends them to `PATH`) before
-CTranslate2 loads. This works on RTX 50-series (Blackwell, sm_120) cards
-that current PyTorch CUDA wheels do not yet support.
-
-Windows users: enabling Developer Mode (Settings -> Privacy & Security
--> For Developers) lets the Hugging Face cache use symlinks, which roughly
-halves the disk space used by downloaded models.
-
-## Running
-
-```bash
-uv run vetbot
-```
-
-Press Enter to start recording, speak, press Enter again to stop. The
-bot transcribes, classifies sentiment, prints both, and reads back the
-echo reply through the speakers. Ctrl+C to exit.
-
-## Web frontend (week 3)
-
-A React + Vite SPA in `frontend/` talks to a FastAPI WebSocket server
-that reuses the exact same Whisper / sentiment / dialogue / Piper
-pipeline as the CLI. The browser handles microphone capture
-(push-to-talk button) and audio playback; the server does everything
-else.
-
-Prerequisites: Node 18+ and `ffmpeg` on PATH (the server shells out to
-ffmpeg once per utterance to decode the browser's WebM/Opus audio into
-16 kHz PCM for Whisper).
-
-```bash
-# one-time
-cd frontend
-pnpm install
-pnpm run build       # writes frontend/dist
-cd ..
-
-# then, on every run
-uv run vetbot-web   # serves SPA + WebSocket on http://127.0.0.1:8000
-```
-
-Open `http://127.0.0.1:8000` and hold the round button to record. Live
-transcripts and bot replies appear as chat bubbles; the right-hand
-panel shows the booking slots filling in and a sentiment indicator.
-When the bot finalises the booking, a "Download JSON" button surfaces
-the same record that the CLI writes to `output/`.
-
-For frontend development with hot reload, run the backend and Vite in
-parallel:
-
-```bash
-uv run vetbot-web        # backend on :8000
-cd frontend && pnpm run dev   # Vite dev server on :5173, proxies /api and /ws
-```
-
-## Development
-
-```bash
-uv run --extra dev pytest         # unit tests
-uv run --extra dev ruff check .   # lint
-uv run --extra dev mypy src       # type-check
-```
-
-## Roadmap
-
-- **Week 1 (done):** ASR + sentiment + echo + TTS, CLI loop, GPU runtime, local config.
-- **Week 2 (done):** Haiku-driven slot-filling dialogue manager with tool use, multi-domain registry, RAG knowledge base, phone digit-readback, JSON appointment output, sentiment averaging.
-- **Week 3:** Web frontend over the existing pipeline (browser mic + WebSocket loop).
-- **Week 4:** Polish, lab report, demo recording.

@@ -62,27 +62,38 @@ def stub_model(monkeypatch: pytest.MonkeyPatch) -> _StubWhisperModel:
     return stub
 
 
-def test_initial_prompt_is_forwarded_for_locked_language(
+def test_initial_prompt_is_forwarded_for_last_language(
     stub_model: _StubWhisperModel,
 ) -> None:
-    """When a prompt exists for the locked language it reaches the decoder."""
+    """When a prompt exists for the last detected language it reaches the decoder."""
     transcriber = WhisperTranscriber(
         device="cpu",
         config=WhisperConfig(),
         prompts={"hu": "rendelő foglalás kutya"},
     )
-    transcriber.locked_language = "hu"
+    transcriber.last_language = "hu"
 
     transcriber.transcribe(np.zeros(1600, dtype=np.float32))
 
     assert stub_model.calls[-1]["initial_prompt"] == "rendelő foglalás kutya"
-    assert stub_model.calls[-1]["language"] == "hu"
 
 
-def test_initial_prompt_is_none_before_language_is_locked(
+def test_language_is_never_forced_on_the_decoder(
     stub_model: _StubWhisperModel,
 ) -> None:
-    """Without a locked language we cannot pick a prompt yet — pass ``None``."""
+    """Auto-detection must run every turn, so we never pass ``language=``."""
+    transcriber = WhisperTranscriber(device="cpu", config=WhisperConfig())
+    transcriber.last_language = "hu"
+
+    transcriber.transcribe(np.zeros(1600, dtype=np.float32))
+
+    assert "language" not in stub_model.calls[-1]
+
+
+def test_initial_prompt_is_none_before_any_detection(
+    stub_model: _StubWhisperModel,
+) -> None:
+    """Without a prior detection we cannot pick a prompt yet — pass ``None``."""
     transcriber = WhisperTranscriber(
         device="cpu",
         config=WhisperConfig(),
@@ -120,17 +131,56 @@ def test_empty_audio_short_circuits(stub_model: _StubWhisperModel) -> None:
     assert stub_model.calls == []
 
 
-def test_language_lock_triggers_at_confidence_threshold(
+def test_high_confidence_detection_updates_prompt_hint(
     stub_model: _StubWhisperModel,
 ) -> None:
-    """A high-confidence detection pins subsequent calls to that language."""
-    transcriber = WhisperTranscriber(device="cpu", config=WhisperConfig())
+    """A high-confidence detection updates the prompt-selection hint only."""
+    transcriber = WhisperTranscriber(
+        device="cpu",
+        config=WhisperConfig(),
+        prompts={"hu": "rendelő foglalás", "en": "appointment booking"},
+    )
     stub_model.next_language = "hu"
     stub_model.next_probability = 0.9
 
     transcriber.transcribe(np.zeros(1600, dtype=np.float32))
 
-    assert transcriber.locked_language == "hu"
+    assert transcriber.last_language == "hu"
 
     transcriber.transcribe(np.zeros(1600, dtype=np.float32))
-    assert stub_model.calls[-1]["language"] == "hu"
+    assert stub_model.calls[-1]["initial_prompt"] == "rendelő foglalás"
+    assert "language" not in stub_model.calls[-1]
+
+
+def test_low_confidence_detection_does_not_update_hint(
+    stub_model: _StubWhisperModel,
+) -> None:
+    """A noisy detection below the threshold leaves the hint untouched."""
+    transcriber = WhisperTranscriber(device="cpu", config=WhisperConfig())
+    stub_model.next_language = "sk"
+    stub_model.next_probability = 0.4
+
+    transcriber.transcribe(np.zeros(1600, dtype=np.float32))
+
+    assert transcriber.last_language is None
+
+
+def test_subsequent_detection_can_switch_language(
+    stub_model: _StubWhisperModel,
+) -> None:
+    """Switching from EN to HU mid-conversation updates the prompt hint."""
+    transcriber = WhisperTranscriber(
+        device="cpu",
+        config=WhisperConfig(),
+        prompts={"hu": "rendelő", "en": "clinic"},
+    )
+    stub_model.next_language = "en"
+    stub_model.next_probability = 0.95
+    transcriber.transcribe(np.zeros(1600, dtype=np.float32))
+    assert transcriber.last_language == "en"
+
+    stub_model.next_language = "hu"
+    stub_model.next_probability = 0.92
+    transcriber.transcribe(np.zeros(1600, dtype=np.float32))
+
+    assert transcriber.last_language == "hu"

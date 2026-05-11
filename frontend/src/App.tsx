@@ -24,6 +24,12 @@ interface SavedPayload {
   payload: Record<string, unknown>;
 }
 
+const SENTIMENT_EMOJI: Record<string, string> = {
+  positive: "😊",
+  neutral: "😐",
+  negative: "😟",
+};
+
 export default function App() {
   const [status, setStatus] = useState<Status>("connecting");
   const [domain, setDomain] = useState<DomainPayload | null>(null);
@@ -129,6 +135,8 @@ export default function App() {
     }
   }, [turns]);
 
+  const hotkeyHeldRef = useRef(false);
+
   const startRecording = useCallback(async () => {
     if (status !== "ready") return;
     setError(null);
@@ -168,6 +176,44 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target.isContentEditable
+      );
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      if (e.repeat) return;
+      if (isTypingTarget(e.target)) return;
+      if (status !== "ready") return;
+      e.preventDefault();
+      hotkeyHeldRef.current = true;
+      startRecording();
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      if (!hotkeyHeldRef.current) return;
+      hotkeyHeldRef.current = false;
+      e.preventDefault();
+      stopRecording();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [status, startRecording, stopRecording]);
+
   const downloadJson = useCallback(() => {
     if (!saved) return;
     const blob = new Blob([JSON.stringify(saved.payload, null, 2)], {
@@ -185,11 +231,11 @@ export default function App() {
 
   const statusLabel = useMemo(() => {
     switch (status) {
-      case "connecting": return "Connecting…";
+      case "connecting": return "Connecting";
       case "ready":      return "Ready";
-      case "recording":  return "Recording";
-      case "processing": return "Thinking…";
-      case "complete":   return "Booking complete";
+      case "recording":  return "Listening";
+      case "processing": return "Thinking";
+      case "complete":   return "Complete";
       case "error":      return "Error";
     }
   }, [status]);
@@ -201,27 +247,84 @@ export default function App() {
     return "";
   }, [status]);
 
+  const totalSlots = domain?.slots.length ?? 0;
+  const completedSlots = useMemo(() => {
+    if (!domain || !booking) return 0;
+    return domain.slots.filter((spec) => {
+      const value = booking.slots[spec.name] ?? "";
+      const confirmed = booking.confirmed.includes(spec.name);
+      const pendingPhone =
+        spec.type === "phone" &&
+        booking.pending_phone_confirmation &&
+        !!value &&
+        !confirmed;
+      return confirmed || (!!value && !pendingPhone);
+    }).length;
+  }, [domain, booking]);
+
+  const progressPct =
+    totalSlots === 0 ? 0 : Math.round((completedSlots / totalSlots) * 100);
+
   return (
     <div className="app">
-      <header className="header">
-        <div>
-          <h1>Voice Booking</h1>
-          <div className="domain-name">
-            {domain ? domain.display_name[latestLang] : "loading…"}
+      <header className="header glass">
+        <div className="header-brand">
+          <div className="brand-mark" aria-hidden="true">
+            <SparklesIcon />
+          </div>
+          <div className="brand-text">
+            <h1 className="brand-title">Voice Booking</h1>
+            <div className="brand-subtitle">
+              {domain ? domain.display_name[latestLang] : "Loading…"}
+              <span className="lang-chip">{latestLang}</span>
+            </div>
           </div>
         </div>
-        <div className="status-pill">
-          <span className={`status-dot ${statusDotClass}`} />
-          {statusLabel}
+
+        <div className="header-control">
+          <div className="header-control-top">
+            <div className="ptt-side">
+              <span className="ptt-label">{pttLabel(status)}</span>
+              <p className="ptt-hint">
+                Hold the mic <kbd className="kbd">or Enter</kbd> to record,
+                release to send. Replies match your language — English or
+                Magyar.
+              </p>
+            </div>
+            <PushToTalkButton
+              status={status}
+              onStart={startRecording}
+              onStop={stopRecording}
+            />
+          </div>
+          <div className="status-pill">
+            <span className={`status-dot ${statusDotClass}`} />
+            {statusLabel}
+          </div>
         </div>
       </header>
 
-      <main className="chat" ref={chatRef}>
-        {error && <div className="error-banner">{error}</div>}
+      <main className="chat glass" ref={chatRef}>
+        {error && (
+          <div className="error-banner">
+            <AlertIcon />
+            {error}
+          </div>
+        )}
         {turns.length === 0 && status === "ready" && (
-          <div className="bubble assistant">
-            Press and hold the button below, say something to book an
-            appointment, then release. EN and HU both work.
+          <div className="empty-state">
+            <div className="empty-icon" aria-hidden="true">
+              <MicIcon />
+            </div>
+            <h3>Ready when you are</h3>
+            <p>
+              Press and hold the mic, say something to book your appointment,
+              then release. I'll fill in the details as you speak.
+            </p>
+            <div className="empty-langs">
+              <span className="lang-chip">English</span>
+              <span className="lang-chip">Magyar</span>
+            </div>
           </div>
         )}
         {turns.map((turn, idx) => (
@@ -230,45 +333,60 @@ export default function App() {
         <audio ref={audioRef} hidden />
       </main>
 
-      <aside className="panel">
-        <section>
-          <h2>Booking slots</h2>
+      <aside className="panel glass">
+        <section className="panel-section">
+          <h2>
+            Appointment details
+            <span className="count-chip">
+              {completedSlots}/{totalSlots}
+            </span>
+          </h2>
+
+          <div className="progress">
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <div className="progress-label">
+              <span>{progressPct}% complete</span>
+              <strong>
+                {booking?.is_complete ? "All set" : "In progress"}
+              </strong>
+            </div>
+          </div>
+
           <div className="slot-list">
             {domain?.slots.map((spec) => {
               const value = booking?.slots[spec.name] ?? "";
-              const confirmed = booking?.confirmed.includes(spec.name) ?? false;
+              const confirmed =
+                booking?.confirmed.includes(spec.name) ?? false;
               const pending =
                 spec.type === "phone" &&
                 booking?.pending_phone_confirmation &&
                 !!value &&
                 !confirmed;
-              const cls = confirmed
-                ? "slot confirmed"
+              const state: SlotState = confirmed
+                ? "confirmed"
                 : pending
-                  ? "slot pending"
-                  : "slot";
+                  ? "pending"
+                  : value
+                    ? "captured"
+                    : "missing";
               return (
-                <div className={cls} key={spec.name}>
-                  <div className="slot-name">{spec.name}</div>
-                  <div className="slot-value">
+                <div className={`slot ${state}`} key={spec.name}>
+                  <div className="slot-header">
+                    <span className="slot-name">{spec.name}</span>
+                    <span className="slot-status-icon">
+                      <SlotStateIcon state={state} />
+                    </span>
+                  </div>
+                  <div className={`slot-value ${value ? "" : "empty"}`}>
                     {value || spec.prompt[latestLang]}
                   </div>
-                  <div
-                    className={`slot-status ${
-                      confirmed
-                        ? "confirmed"
-                        : pending
-                          ? "pending"
-                          : "missing"
-                    }`}
-                  >
-                    {confirmed
-                      ? "confirmed"
-                      : pending
-                        ? "awaiting confirmation"
-                        : value
-                          ? "captured"
-                          : "missing"}
+                  <div className="slot-status-text">
+                    {slotStateLabel(state)}
                   </div>
                 </div>
               );
@@ -277,52 +395,72 @@ export default function App() {
         </section>
 
         {sentiment && (
-          <section>
+          <section className="panel-section">
             <h2>Sentiment</h2>
-            <div className="sentiment-summary">
-              <span className={`tag ${sentiment.label}`}>{sentiment.label}</span>
-              <span>{(sentiment.score * 100).toFixed(0)}%</span>
+            <div className="sentiment-card">
+              <div className="sentiment-label">
+                <span className="sentiment-emoji">
+                  {SENTIMENT_EMOJI[sentiment.label] ?? "🙂"}
+                </span>
+                <span className="sentiment-text">{sentiment.label}</span>
+              </div>
+              <span className="sentiment-score">
+                {(sentiment.score * 100).toFixed(0)}%
+              </span>
             </div>
           </section>
         )}
 
         {saved && (
-          <section>
-            <h2>Appointment saved</h2>
-            <p style={{ fontSize: 12, color: "#9fb0d1", margin: "0 0 8px" }}>
-              {saved.path ?? "(no server path)"}
-            </p>
-            <button className="download-btn" onClick={downloadJson}>
-              Download JSON
-            </button>
+          <section className="panel-section">
+            <h2>Saved</h2>
+            <div className="saved-card">
+              <p className="saved-path">
+                {saved.path ?? "(no server path)"}
+              </p>
+              <button className="download-btn" onClick={downloadJson}>
+                <DownloadIcon />
+                Download JSON
+              </button>
+            </div>
           </section>
         )}
       </aside>
-
-      <footer className="footer">
-        <PushToTalkButton
-          status={status}
-          onStart={startRecording}
-          onStop={stopRecording}
-        />
-        <p className="ptt-hint">
-          Hold the button to record, release to send. The bot replies in
-          the language you spoke (English or Hungarian).
-        </p>
-      </footer>
     </div>
   );
 }
 
+type SlotState = "confirmed" | "pending" | "captured" | "missing";
+
+function slotStateLabel(state: SlotState): string {
+  switch (state) {
+    case "confirmed": return "Confirmed";
+    case "pending":   return "Awaiting confirmation";
+    case "captured":  return "Captured";
+    case "missing":   return "Waiting…";
+  }
+}
+
+function pttLabel(status: Status): string {
+  switch (status) {
+    case "connecting": return "Connecting to assistant…";
+    case "ready":      return "Hold to speak";
+    case "recording":  return "Listening to you";
+    case "processing": return "Thinking it over";
+    case "complete":   return "Booking complete";
+    case "error":      return "Something went wrong";
+  }
+}
+
 function ChatBubble({ turn }: { turn: TranscriptTurn }) {
   return (
-    <div className={`bubble ${turn.role}`}>
-      {turn.text}
-      <div className="meta">
+    <div className={`bubble-row ${turn.role}`}>
+      <div className={`bubble ${turn.role}`}>{turn.text}</div>
+      <div className="bubble-meta">
         <span className="tag">{turn.language}</span>
         {turn.sentiment && (
           <span className={`tag ${turn.sentiment.label}`}>
-            {turn.sentiment.label} ({(turn.sentiment.score * 100).toFixed(0)}%)
+            {turn.sentiment.label} · {(turn.sentiment.score * 100).toFixed(0)}%
           </span>
         )}
       </div>
@@ -337,9 +475,9 @@ interface PushToTalkButtonProps {
 }
 
 function PushToTalkButton({ status, onStart, onStop }: PushToTalkButtonProps) {
-  const disabled =
-    status !== "ready" && status !== "recording";
+  const disabled = status !== "ready" && status !== "recording";
   const recording = status === "recording";
+  const processing = status === "processing";
 
   const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -351,14 +489,121 @@ function PushToTalkButton({ status, onStart, onStop }: PushToTalkButtonProps) {
   };
 
   return (
-    <button
-      className={`ptt-button ${recording ? "recording" : ""}`}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerLeave={(e) => status === "recording" && handlePointerUp(e)}
-      disabled={disabled}
-    >
-      {recording ? "Release" : "Hold"}
-    </button>
+    <div className={`ptt-wrap ${recording ? "recording" : ""}`}>
+      <span className="ptt-ring" aria-hidden="true" />
+      <span className="ptt-ring" aria-hidden="true" />
+      <span className="ptt-ring" aria-hidden="true" />
+      <button
+        className={`ptt-button ${recording ? "recording" : ""}`}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
+        onPointerLeave={(e) => status === "recording" && handlePointerUp(e)}
+        disabled={disabled}
+        aria-label={recording ? "Release to send" : "Hold to record"}
+      >
+        {recording ? (
+          <span className="ptt-waveform" aria-hidden="true">
+            <span /><span /><span /><span /><span />
+          </span>
+        ) : processing ? (
+          <span className="ptt-thinking" aria-hidden="true">
+            <span /><span /><span />
+          </span>
+        ) : (
+          <MicIcon />
+        )}
+      </button>
+    </div>
   );
+}
+
+/* ====== Inline icons (no extra deps) ====== */
+
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+      <line x1="12" y1="19" x2="12" y2="23" />
+      <line x1="8" y1="23" x2="16" y2="23" />
+    </svg>
+  );
+}
+
+function SparklesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" />
+      <path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8L19 14z" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="13" />
+      <line x1="12" y1="16" x2="12" y2="16" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"
+      strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 14" />
+    </svg>
+  );
+}
+
+function DotIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="12" cy="12" r="4" />
+    </svg>
+  );
+}
+
+function DashIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+      strokeLinecap="round">
+      <line x1="6" y1="12" x2="18" y2="12" />
+    </svg>
+  );
+}
+
+function SlotStateIcon({ state }: { state: SlotState }) {
+  switch (state) {
+    case "confirmed": return <CheckIcon />;
+    case "pending":   return <ClockIcon />;
+    case "captured":  return <DotIcon />;
+    case "missing":   return <DashIcon />;
+  }
 }
